@@ -108,7 +108,7 @@ Publishing to PyPI uses the repo secret `PYPI_TOKEN` (a PyPI API token). GitHub 
 ### Release
 
 1. Bump `version` in `pyproject.toml` (and `server.json` if you are not tagging yet)
-2. Commit and tag: `git tag v0.1.1 && git push origin v0.1.1`
+2. Commit and tag: `git tag v0.1.2 && git push origin v0.1.2`
 3. GitHub Actions runs `publish.yml`:
    - `release` — typecheck, test, build wheel/sdist
    - `pypi-publish` — upload to PyPI with `PYPI_TOKEN`
