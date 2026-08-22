@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-kokoro-tts"
+version = "0.1.0"
+description = "Local Kokoro-82M text-to-speech MCP server that speaks through your machine's audio"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Mehdi Roshanfekr" }]
+keywords = ["mcp", "model-context-protocol", "tts", "text-to-speech", "kokoro", "agent"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+  "huggingface_hub>=0.26.0",
+  "kokoro>=0.9.4",
+  "mcp>=1.6.0",
+  "soundfile>=0.12.1",
+]
+
+[project.optional-dependencies]
+dev = ["pyright>=1.1.0", "pytest>=8.0.0"]
+
+[project.scripts]
+mcp-kokoro-tts = "mcp_kokoro_tts.__main__:main"
+mcp-kokoro-tts-provision = "mcp_kokoro_tts.__main__:provision_main"
+
+[project.urls]
+Homepage = "https://github.com/mrfqcentic/mcp-kokoro-tts"
+Repository = "https://github.com/mrfqcentic/mcp-kokoro-tts"
+Issues = "https://github.com/mrfqcentic/mcp-kokoro-tts/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_kokoro_tts"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

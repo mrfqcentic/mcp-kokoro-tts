@@ -1,0 +1,13 @@
+mcp-kokoro-tts
+Copyright 2026 Mehdi Roshanfekr
+
+This product includes software developed for text-to-speech inference using
+the Kokoro-82M model.
+
+Kokoro-82M
+Copyright hexgrad
+Licensed under the Apache License, Version 2.0
+https://huggingface.co/hexgrad/Kokoro-82M
+
+Model weights are not distributed with this package. They are downloaded at
+runtime from Hugging Face under the terms of the Kokoro-82M license.

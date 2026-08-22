@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mrfqcentic/mcp-kokoro-tts",
+  "description": "Local Kokoro-82M text-to-speech MCP server that synthesizes speech and plays it on the user's machine",
+  "repository": {
+    "url": "https://github.com/mrfqcentic/mcp-kokoro-tts",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "mcp-kokoro-tts",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
