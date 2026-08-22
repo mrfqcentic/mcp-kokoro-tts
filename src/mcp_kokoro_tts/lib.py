@@ -260,9 +260,9 @@ def ensure_spacy_english_model(*, log: Callable[[str], None], force: bool = Fals
     if not force and spacy_english_model_installed():
         return
 
-    import spacy
+    from importlib.metadata import version as installed_version
 
-    url = spacy_english_model_wheel_url(spacy.__version__)
+    url = spacy_english_model_wheel_url(installed_version("spacy"))
     log(f"mcp-kokoro-tts: installing spaCy model {SPACY_EN_MODEL} into {sys.prefix}")
     install_wheel_into_this_python(url)
     if not spacy_english_model_installed():
