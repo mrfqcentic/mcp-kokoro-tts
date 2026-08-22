@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from mcp_kokoro_tts import lib
 from mcp_kokoro_tts.lib import (
     ModelPaths,
     resolve_default_voice,
@@ -53,6 +56,61 @@ def test_resolve_default_voice_falls_back_to_model_default(tmp_path: Path) -> No
         )
         == str(model[0])
     )
+
+
+def test_spacy_english_model_wheel_url_matches_minor_series() -> None:
+    assert lib.spacy_english_model_wheel_url("3.8.15") == (
+        "https://github.com/explosion/spacy-models/releases/download/"
+        "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+    )
+
+
+def test_install_wheel_uses_pip_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lib.importlib.util, "find_spec", lambda name: object() if name == "pip" else None)
+
+    def fake_run(command, capture_output=True, text=True):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(lib.subprocess, "run", fake_run)
+    lib.install_wheel_into_this_python("https://example.com/model.whl")
+    assert calls[0][0] == sys.executable
+    assert calls[0][1:4] == ["-m", "pip", "install"]
+    assert calls[0][-1] == "https://example.com/model.whl"
+
+
+def test_install_wheel_uses_uv_python_when_pip_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lib.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(lib.shutil, "which", lambda name: "/opt/uv" if name == "uv" else None)
+
+    def fake_run(command, capture_output=True, text=True):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(lib.subprocess, "run", fake_run)
+    lib.install_wheel_into_this_python("https://example.com/model.whl")
+    assert calls[0][:4] == ["/opt/uv", "pip", "install", "--python"]
+    assert calls[0][4] == sys.executable
+    assert calls[0][-1] == "https://example.com/model.whl"
+
+
+def test_install_wheel_errors_when_no_installer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lib.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(lib.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="no pip"):
+        lib.install_wheel_into_this_python("https://example.com/model.whl")
+
+
+def test_ensure_spacy_english_model_skips_when_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lib, "spacy_english_model_installed", lambda: True)
+
+    def should_not_install(_url: str) -> None:
+        raise AssertionError("should not install")
+
+    monkeypatch.setattr(lib, "install_wheel_into_this_python", should_not_install)
+    lib.ensure_spacy_english_model(log=lambda _message: None)
 
 
 def test_verify_model_reports_missing(tmp_path: Path) -> None:

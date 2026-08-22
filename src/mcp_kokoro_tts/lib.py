@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
@@ -17,6 +18,7 @@ DEFAULT_LANG_CODE = "a"
 SAMPLE_RATE = 24_000
 TEXT_MAX_LEN = 500
 SOUND_FAIL_FAST_MS = 1500
+SPACY_EN_MODEL = "en_core_web_sm"
 
 REQUIRED_MODEL_FILES = (
     "config.json",
@@ -212,6 +214,63 @@ def download_model(
     )
 
 
+def spacy_english_model_wheel_url(spacy_version: str, *, name: str = SPACY_EN_MODEL) -> str:
+    parts = spacy_version.split(".")
+    if len(parts) < 2:
+        raise ValueError(f"unrecognized spaCy version: {spacy_version}")
+    tag = f"{name}-{parts[0]}.{parts[1]}.0"
+    return (
+        "https://github.com/explosion/spacy-models/releases/download/"
+        f"{tag}/{tag}-py3-none-any.whl"
+    )
+
+
+def spacy_english_model_installed(name: str = SPACY_EN_MODEL) -> bool:
+    import spacy.util
+
+    return spacy.util.is_package(name)
+
+
+def install_wheel_into_this_python(url: str) -> None:
+    """Install a wheel into the running interpreter.
+
+    uv tool / uvx environments do not include pip and are launched without
+    VIRTUAL_ENV. spaCy's built-in download then runs `uv pip install` against
+    the client's cwd and exits 2, killing the MCP process. Target this
+    interpreter explicitly instead.
+    """
+    if importlib.util.find_spec("pip") is not None:
+        command = [sys.executable, "-m", "pip", "install", url]
+    else:
+        uv = shutil.which("uv")
+        if uv is None:
+            raise RuntimeError(
+                "Cannot install the spaCy English model: this environment has no pip, "
+                "and uv is not on PATH."
+            )
+        command = [uv, "pip", "install", "--python", sys.executable, url]
+
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(f"spaCy English model install failed: {detail}")
+
+
+def ensure_spacy_english_model(*, log: Callable[[str], None], force: bool = False) -> None:
+    if not force and spacy_english_model_installed():
+        return
+
+    import spacy
+
+    url = spacy_english_model_wheel_url(spacy.__version__)
+    log(f"mcp-kokoro-tts: installing spaCy model {SPACY_EN_MODEL} into {sys.prefix}")
+    install_wheel_into_this_python(url)
+    if not spacy_english_model_installed():
+        raise RuntimeError(
+            f"Installed {SPACY_EN_MODEL} but spaCy still cannot load it from {sys.prefix}"
+        )
+
+
 def ensure_provisioned(
     *,
     model_dir: Path | None = None,
@@ -239,6 +298,8 @@ def ensure_provisioned(
     if missing:
         joined = ", ".join(missing)
         raise RuntimeError(f"Kokoro model provision incomplete: {joined}")
+
+    ensure_spacy_english_model(log=logger, force=force)
 
     resolved_config = resolved_model_dir / "config.json"
     resolved_weights = resolved_model_dir / "kokoro-v1_0.pth"

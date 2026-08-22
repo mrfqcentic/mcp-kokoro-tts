@@ -41,7 +41,13 @@ def initialize(*, force_provision: bool = False) -> ModelPaths:
     global _model_paths, _engine
     _log("mcp-kokoro-tts: ensuring Kokoro-82M model is provisioned")
     _model_paths = ensure_provisioned(force=force_provision, log=_log)
-    _engine = None
+    _log("mcp-kokoro-tts: loading speech engine")
+    try:
+        _engine = SpeechEngine(_model_paths)
+    except SystemExit as exc:
+        raise RuntimeError(
+            f"speech engine failed to start (spaCy model install aborted): {exc}"
+        ) from exc
     return _model_paths
 
 
@@ -65,7 +71,7 @@ def speak(text: str, voice: str | None = None, speed: float = 1.0) -> str:
             model_paths=_paths(),
             engine=_speech_engine(),
         )
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError, SystemExit) as exc:
         raise ToolError(str(exc)) from exc
 
     parts = [

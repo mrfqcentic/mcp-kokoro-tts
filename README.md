@@ -6,7 +6,7 @@ Local Kokoro-82M text-to-speech MCP server. When your agent calls `speak`, it sy
 
 Works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code, opencode, Cline, and more. One short config block, no API keys — synthesis runs locally with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M).
 
-On first start, the server downloads the model (~312 MB) into your local cache. Model weights are not bundled in the package.
+On first start, the server provisions two things that are not on PyPI: the Kokoro-82M weights (~312 MB) into a local cache, and spaCy's English model (`en_core_web_sm`) into the same Python environment the server is running in. That second install is required because Kokoro's G2P pipeline loads spaCy, and a `uvx` / `uv tool` environment will not have the model unless this package puts it there.
 
 ## Install
 
@@ -23,9 +23,9 @@ Add to your client's MCP config:
 }
 ```
 
-Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). The first server start provisions the Kokoro model automatically.
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). The first server start provisions Kokoro weights and the spaCy English model automatically.
 
-To pre-download the model without starting the MCP server:
+To pre-download both without starting the MCP server:
 
 ```bash
 uvx mcp-kokoro-tts-provision
