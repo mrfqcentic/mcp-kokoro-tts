@@ -101,38 +101,18 @@ Resolution order:
 
 ## Publishing
 
-This package uses **PyPI Trusted Publishing** (OpenID Connect). You do **not** need a long-lived `PYPI_TOKEN` secret in GitHub.
+Tagging a version runs GitHub Actions `publish.yml`, which uploads to **PyPI** then the **MCP Registry**.
 
-### One-time PyPI setup
-
-Because `mcp-kokoro-tts` may not exist on PyPI yet, register a **pending publisher** on your PyPI account:
-
-1. Sign in at [pypi.org](https://pypi.org)
-2. Open your account menu → **Publishing** (account-level, not a project page)
-3. Add a **GitHub** trusted publisher with:
-
-| Field | Value |
-|---|---|
-| PyPI project name | `mcp-kokoro-tts` |
-| Owner | `mrfqcentic` |
-| Repository name | `mcp-kokoro-tts` |
-| Workflow name | `publish.yml` |
-| Environment name | *(leave blank)* |
-
-The project name must match `pyproject.toml` exactly. The first tagged release creates the PyPI project automatically.
-
-Docs: [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/), [GitHub OIDC in PyPI](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-pypi)
+Publishing to PyPI uses the repo secret `PYPI_TOKEN` (a PyPI API token). GitHub trusted publishing can also be configured on the PyPI project; this workflow authenticates with the token so a first release does not depend on pending-publisher matching.
 
 ### Release
 
-1. Bump `version` in `pyproject.toml`
+1. Bump `version` in `pyproject.toml` (and `server.json` if you are not tagging yet)
 2. Commit and tag: `git tag v0.1.0 && git push origin v0.1.0`
 3. GitHub Actions runs `publish.yml`:
-   - `release` — test, build wheel/sdist
-   - `pypi-publish` — OIDC → short-lived PyPI token → upload (no secrets)
-   - `mcp-registry` — OIDC → MCP Registry publish (same as `mcp-notify`)
-
-Optional hardening: create a GitHub **environment** named `pypi`, add it to the `pypi-publish` job, and set the same environment name in the PyPI trusted publisher form.
+   - `release` — typecheck, test, build wheel/sdist
+   - `pypi-publish` — upload to PyPI with `PYPI_TOKEN`
+   - `mcp-registry` — OIDC → MCP Registry (after PyPI succeeds)
 
 ## Development
 
