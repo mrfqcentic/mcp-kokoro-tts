@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-kokoro-tts"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local Kokoro-82M text-to-speech MCP server that speaks through your machine's audio"
 readme = "README.md"
 license = "Apache-2.0"
