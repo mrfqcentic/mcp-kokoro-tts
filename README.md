@@ -57,6 +57,32 @@ to back in call order instead of overlapping.
 
 Lists available Kokoro voices and the currently selected default.
 
+### `stop`
+
+Cuts the utterance playing right now and drops everything queued behind it.
+Same thing the hotkey below does, for clients that cannot press keys.
+
+### `settings`
+
+Returns the local settings page URL, the current stop hotkey, and whether the
+keyboard listener is armed.
+
+## Stop hotkey (barge-in)
+
+Hold **Ctrl + Shift** and playback stops immediately: the current sentence is
+cut and every queued utterance is discarded, so you can talk over the agent.
+
+Change the chord on the local settings page the server prints at startup —
+`http://127.0.0.1:8765/` by default — where you press the new combination and
+save. It is written to `~/.config/mcp-kokoro-tts/hotkey.json` and picked up
+without a restart.
+
+A global keyboard listener needs **Input Monitoring** permission on macOS: the
+server asks for it on startup, so the app running it shows up under System
+Settings → Privacy & Security → Input Monitoring — switch it on and restart.
+Without it the hotkey reports `needs_input_monitoring`; the `stop` tool and the
+page's "Stop audio now" button keep working.
+
 ## Choosing your voice
 
 Resolution order:
@@ -89,15 +115,17 @@ Resolution order:
 | `TTS_HF_CACHE_DIR` | Override Hugging Face hub cache directory |
 | `TTS_OUTPUT_DIR` | Directory for generated WAV files |
 | `TTS_PLAY` | Set to `0` to synthesize without local playback |
+| `TTS_CONFIG_DIR` | Directory holding `hotkey.json` (default `~/.config/mcp-kokoro-tts`) |
+| `TTS_WEB_PORT` | Port for the local settings page (default `8765`) |
 | `HF_TOKEN` | Optional Hugging Face token for faster downloads |
 
 ## Platforms
 
-| OS | Synthesis | Playback |
-|---|---|---|
-| macOS | yes | `afplay` |
-| Linux | yes | `ffplay`, `paplay`, or `aplay` |
-| Windows | yes | PowerShell `MediaPlayer` |
+| OS | Synthesis | Playback | Stop hotkey |
+|---|---|---|---|
+| macOS | yes | `afplay` | yes (Quartz tap, needs Input Monitoring) |
+| Linux | yes | `ffplay`, `paplay`, or `aplay` | no |
+| Windows | yes | PowerShell `MediaPlayer` | no |
 
 `espeak-ng` is optional. English works without it; install it for better out-of-vocabulary coverage and some non-English languages.
 

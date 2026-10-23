@@ -176,3 +176,32 @@ def test_playback_queue_serializes_in_call_order(tmp_path: Path, monkeypatch: py
     assert [(kind, file) for kind, file in events] == [
         (kind, str(path)) for path in files for kind in ("start", "end")
     ]
+
+
+def test_stop_playback_kills_player_and_drops_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(lib, "pick_player", lambda file: ("/bin/sleep", ["5"]))
+
+    files = []
+    for name in ("a", "b", "c"):
+        path = tmp_path / f"{name}.wav"
+        path.write_bytes(b"x")
+        files.append(path)
+    for path in files:
+        assert lib.enqueue_audio(path).ok
+
+    deadline = time.monotonic() + 3
+    while lib.queue_depth() > 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert lib.stop_playback() == 2
+    assert lib.queue_depth() == 0
+
+    deadline = time.monotonic() + 2
+    while lib._current_player is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert lib._current_player is None

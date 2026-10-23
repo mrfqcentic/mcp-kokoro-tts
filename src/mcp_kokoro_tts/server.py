@@ -6,17 +6,22 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_kokoro_tts import __version__
+from mcp_kokoro_tts.hotkey import HotkeyListener
 from mcp_kokoro_tts.lib import (
     ModelPaths,
     SpeechEngine,
     ensure_provisioned,
     format_voice_listing,
     speak_text,
+    stop_playback,
 )
+from mcp_kokoro_tts.web import SettingsServer
 
 _server = MCPServer("mcp-kokoro-tts", version=__version__)
 _model_paths: ModelPaths | None = None
 _engine: SpeechEngine | None = None
+_listener: HotkeyListener | None = None
+_settings: SettingsServer | None = None
 
 
 def _log(message: str) -> None:
@@ -98,7 +103,52 @@ def list_voices() -> str:
     return format_voice_listing(_paths())
 
 
+@_server.tool(
+    name="stop",
+    title="Stop speaking",
+    description=(
+        "Stop the utterance playing right now and drop everything queued behind it. "
+        "Use it when the user asks the harness to be quiet or starts talking over it."
+    ),
+)
+def stop() -> str:
+    dropped = stop_playback()
+    return f"Playback stopped. Dropped {dropped} queued utterance(s)."
+
+
+@_server.tool(
+    name="settings",
+    title="Hotkey settings",
+    description=(
+        "Return the local settings page URL, the current stop hotkey, and whether the "
+        "hotkey listener is active. The page lets the user change the key combination."
+    ),
+)
+def settings() -> str:
+    config = _listener.config if _listener is not None else None
+    label = config.label if config is not None else "Ctrl+Shift"
+    status = _listener.status if _listener is not None else "not started"
+    url = _settings.url if _settings is not None else "unavailable"
+    return (
+        f"Stop hotkey: {label}. Listener: {status}. Settings page: {url}"
+    )
+
+
+def _on_hotkey() -> None:
+    dropped = stop_playback()
+    _log(f"mcp-kokoro-tts: hotkey pressed - stopped playback ({dropped} queued dropped)")
+
+
+def _start_controls() -> None:
+    global _listener, _settings
+    _listener = HotkeyListener(_on_hotkey)
+    _listener.start()
+    _settings = SettingsServer(listener=_listener, stop_playback=stop_playback)
+    _settings.start()
+
+
 def run() -> None:
     initialize()
+    _start_controls()
     _log(f"mcp-kokoro-tts: ready on stdio (v{__version__})")
     _server.run(transport="stdio")

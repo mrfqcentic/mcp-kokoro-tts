@@ -356,9 +356,13 @@ _playback_thread: threading.Thread | None = None
 _playback_thread_lock = threading.Lock()
 # Serializes synthesis + enqueue so call order is preserved on the wire.
 _speak_lock = threading.Lock()
+# Handle on the player process, so a barge-in can cut the current utterance.
+_current_player: subprocess.Popen | None = None
+_player_lock = threading.Lock()
 
 
 def _play_file(file: Path) -> None:
+    global _current_player
     player = pick_player(str(file))
     if player is None:
         raise RuntimeError("no audio player found for this platform")
@@ -369,12 +373,19 @@ def _play_file(file: Path) -> None:
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    with _player_lock:
+        _current_player = process
     try:
         process.wait(timeout=PLAY_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
         return
+    finally:
+        with _player_lock:
+            _current_player = None
+    if process.returncode < 0:
+        return  # killed by stop_playback: silence, not a failure
     if process.returncode != 0:
         stderr = (process.stderr.read() if process.stderr else b"").decode("utf-8", "replace").strip()
         raise RuntimeError(stderr or f"player exited with code {process.returncode}")
@@ -424,6 +435,31 @@ def enqueue_audio(file: Path) -> Result:
 def queue_depth() -> int:
     """Number of utterances waiting behind the one currently playing."""
     return _playback_queue.qsize()
+
+
+def stop_playback() -> int:
+    """Cut the current utterance and drop everything queued behind it."""
+    with _player_lock:
+        process = _current_player
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+    dropped = 0
+    while True:
+        try:
+            item = _playback_queue.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            if item is not None:
+                dropped += 1
+        finally:
+            _playback_queue.task_done()
+    return dropped
 
 
 def play_audio(file: Path) -> Result:

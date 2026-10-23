@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mcp-kokoro-tts · stop hotkey</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --line: #262b36;
+    --text: #e6e9ef;
+    --muted: #8d94a5;
+    --accent: #6ea8fe;
+    --ok: #43c082;
+    --warn: #e8a33d;
+    --bad: #e56a6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2230, var(--bg) 60%);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+    padding: 32px 16px;
+  }
+  .card {
+    width: min(560px, 100%); background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; padding: 26px 26px 22px; box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  h1 { margin: 0 0 4px; font-size: 19px; letter-spacing: -.01em; }
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; align-items: center; }
+  .chip {
+    border: 1px solid var(--line); background: #1e232d; border-radius: 10px;
+    padding: 7px 12px; font-weight: 600; font-size: 13px; letter-spacing: .02em;
+  }
+  .chip.live { border-color: var(--accent); color: var(--accent); }
+  .empty { color: var(--muted); font-size: 13px; }
+  .capture {
+    margin: 14px 0 6px; border: 1px dashed var(--line); border-radius: 14px;
+    padding: 20px; text-align: center; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, background .15s; outline: none; font-size: 13px;
+  }
+  .capture:hover, .capture:focus-visible { border-color: var(--accent); background: #1a1f29; }
+  .capture.armed { border-style: solid; border-color: var(--accent); color: var(--text); }
+  .row { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; font-size: 13px; border-radius: 10px;
+    padding: 9px 15px; cursor: pointer; border: 1px solid var(--line);
+    background: #1e232d; color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: transparent; color: #0b1220; }
+  button:disabled { opacity: .45; cursor: default; }
+  .foot { margin-top: 18px; color: var(--muted); font-size: 12px; }
+  code { background: #1e232d; border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <h1>Stop hotkey</h1>
+    <p class="sub">Hold this chord to cut the current utterance and drop everything queued behind it.</p>
+
+    <div class="status"><span id="dot" class="dot"></span><span id="statusText">checking…</span></div>
+
+    <div class="chips" id="saved"><span class="empty">loading…</span></div>
+
+    <div class="capture" id="capture" tabindex="0">Click here, then press your chord (modifiers only)</div>
+
+    <div class="row">
+      <button class="primary" id="save" disabled>Save</button>
+      <button id="reset">Reset to Ctrl+Shift</button>
+      <button id="stop">Stop audio now</button>
+    </div>
+
+    <p class="foot">Saved to <code id="configPath">hotkey.json</code>. Listening needs macOS
+      <strong>Input Monitoring</strong> permission for the app running the MCP server;
+      without it the <code>stop</code> tool and the button above still work.</p>
+  </main>
+
+<script>
+(() => {
+  const MODS = [["ctrlKey", "ctrl"], ["shiftKey", "shift"], ["altKey", "alt"], ["metaKey", "cmd"]];
+  const els = {
+    dot: document.getElementById("dot"),
+    statusText: document.getElementById("statusText"),
+    saved: document.getElementById("saved"),
+    capture: document.getElementById("capture"),
+    save: document.getElementById("save"),
+    reset: document.getElementById("reset"),
+    stop: document.getElementById("stop"),
+    configPath: document.getElementById("configPath"),
+  };
+  let pending = null;
+  let savedKeys = [];
+
+  const chips = (keys, live) => {
+    if (!keys.length) return '<span class="empty">no chord captured</span>';
+    return keys.map((k) => `<span class="chip${live ? " live" : ""}">${k[0].toUpperCase() + k.slice(1)}</span>`).join("");
+  };
+  const pressedMods = (e) => MODS.filter(([prop]) => e[prop]).map(([, name]) => name);
+
+  function renderSaved() {
+    els.saved.innerHTML = chips(savedKeys, false);
+    els.save.disabled = pending === null;
+  }
+
+  function setStatus(data) {
+    const listening = data.status === "listening";
+    els.dot.className = "dot " + (listening ? "ok" : "bad");
+    els.statusText.textContent = listening
+      ? `Listening for ${(data.label || "").toLowerCase()}`
+      : data.input_monitoring
+        ? "Permission granted — restart the MCP server to arm the hotkey"
+        : "Hotkey inactive — allow Input Monitoring for the app running the server";
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      savedKeys = data.keys || [];
+      renderSaved();
+      setStatus(data);
+      if (data.config_path) els.configPath.textContent = data.config_path;
+    } catch {
+      els.statusText.textContent = "server not reachable";
+      els.dot.className = "dot bad";
+    }
+  }
+
+  els.capture.addEventListener("focus", () => els.capture.classList.add("armed"));
+  els.capture.addEventListener("blur", () => els.capture.classList.remove("armed"));
+  els.capture.addEventListener("click", () => els.capture.focus());
+  els.capture.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    const mods = pressedMods(e);
+    if (!mods.length) return;
+    pending = mods;
+    els.capture.classList.add("armed");
+    els.capture.textContent = "Press Save to apply";
+    els.saved.innerHTML = chips(mods, true);
+    els.save.disabled = false;
+  });
+
+  els.save.addEventListener("click", async () => {
+    if (!pending) return;
+    const res = await fetch("/api/hotkey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys: pending }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || "could not save"); return; }
+    savedKeys = data.keys;
+    pending = null;
+    els.capture.textContent = "Click here, then press your chord (modifiers only)";
+    els.capture.classList.remove("armed");
+    renderSaved();
+    refresh();
+  });
+
+  els.reset.addEventListener("click", () => {
+    pending = ["ctrl", "shift"];
+    els.saved.innerHTML = chips(pending, true);
+    els.save.disabled = false;
+    els.capture.textContent = "Ctrl+Shift staged — press Save";
+  });
+
+  els.stop.addEventListener("click", async () => {
+    const res = await fetch("/api/stop", { method: "POST" });
+    const data = await res.json();
+    els.stop.textContent = `Stopped (${data.drained || 0} dropped)`;
+    setTimeout(() => { els.stop.textContent = "Stop audio now"; }, 1600);
+  });
+
+  refresh();
+  setInterval(refresh, 2500);
+})();
+</script>
+</body>
+</html>
