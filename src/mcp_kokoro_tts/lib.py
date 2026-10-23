@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +19,7 @@ DEFAULT_VOICE_ID = "af_heart"
 DEFAULT_LANG_CODE = "a"
 SAMPLE_RATE = 24_000
 TEXT_MAX_LEN = 500
-SOUND_FAIL_FAST_MS = 1500
+PLAY_TIMEOUT_S = 600.0
 SPACY_EN_MODEL = "en_core_web_sm"
 
 REQUIRED_MODEL_FILES = (
@@ -50,6 +52,7 @@ class SpeakResult:
     segment_count: int
     played: bool
     play_error: str | None = None
+    queue_position: int | None = None
 
 
 def project_root() -> Path:
@@ -348,39 +351,83 @@ def pick_player(file: str) -> tuple[str, list[str]] | None:
     return None
 
 
-def spawn_and_settle(command: str, args: list[str], fail_fast_ms: int) -> Result:
+_playback_queue: "queue.Queue[Path | None]" = queue.Queue()
+_playback_thread: threading.Thread | None = None
+_playback_thread_lock = threading.Lock()
+# Serializes synthesis + enqueue so call order is preserved on the wire.
+_speak_lock = threading.Lock()
+
+
+def _play_file(file: Path) -> None:
+    player = pick_player(str(file))
+    if player is None:
+        raise RuntimeError("no audio player found for this platform")
+    command, args = player
+    process = subprocess.Popen(
+        [command, *args],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        process.wait(timeout=PLAY_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return
+    if process.returncode != 0:
+        stderr = (process.stderr.read() if process.stderr else b"").decode("utf-8", "replace").strip()
+        raise RuntimeError(stderr or f"player exited with code {process.returncode}")
+
+
+def _playback_loop() -> None:
+    """Drain the single playback channel: one file at a time, in order."""
+    while True:
+        file = _playback_queue.get()
+        try:
+            if file is None:
+                return
+            _play_file(file)
+        except Exception as exc:  # a bad file must not kill the channel
+            print(f"mcp-kokoro-tts: playback failed for {file}: {exc}", file=sys.stderr)
+        finally:
+            _playback_queue.task_done()
+
+
+def _ensure_playback_thread() -> None:
+    global _playback_thread
+    with _playback_thread_lock:
+        if _playback_thread is None or not _playback_thread.is_alive():
+            _playback_thread = threading.Thread(
+                target=_playback_loop,
+                name="mcp-kokoro-tts-playback",
+                daemon=True,
+            )
+            _playback_thread.start()
+
+
+def enqueue_audio(file: Path) -> Result:
+    """Append `file` to the single playback queue; returns as soon as it is queued."""
     if os.environ.get("CI"):
         return Result(ok=True)
 
-    try:
-        process = subprocess.Popen(
-            [command, *args],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-    except OSError as exc:
-        return Result(ok=False, error=str(exc))
+    if not is_file(file):
+        return Result(ok=False, error="file not found (or not a regular file)")
+    if pick_player(str(file)) is None:
+        return Result(ok=False, error="no audio player found for this platform")
 
-    try:
-        process.wait(timeout=fail_fast_ms / 1000)
-        if process.returncode == 0:
-            return Result(ok=True)
-        stderr = (process.stderr.read() if process.stderr else b"").decode("utf-8", "replace").strip()
-        return Result(ok=False, error=stderr or f"command exited with code {process.returncode}")
-    except subprocess.TimeoutExpired:
-        return Result(ok=True)
+    _ensure_playback_thread()
+    _playback_queue.put(file)
+    return Result(ok=True)
+
+
+def queue_depth() -> int:
+    """Number of utterances waiting behind the one currently playing."""
+    return _playback_queue.qsize()
 
 
 def play_audio(file: Path) -> Result:
-    if not is_file(file):
-        return Result(ok=False, error="file not found (or not a regular file)")
-
-    player = pick_player(str(file))
-    if player is None:
-        return Result(ok=False, error="no audio player found for this platform")
-    command, args = player
-    return spawn_and_settle(command, args, SOUND_FAIL_FAST_MS)
+    return enqueue_audio(file)
 
 
 class SpeechEngine:
@@ -453,19 +500,25 @@ def speak_text(
     voice_path = resolve_voice_path(selected_voice, model_dir=model_paths.model_dir, package_voices=package_voices_dir())
 
     active_engine = engine or SpeechEngine(model_paths)
-    output_path = active_engine.synthesize(
-        text,
-        voice_path=voice_path,
-        speed=speed,
-        output_dir=output_dir or default_output_dir(),
-    )
-
     played = False
     play_error: str | None = None
-    if play and os.environ.get("TTS_PLAY", "1") != "0":
-        play_result = play_audio(output_path)
-        played = play_result.ok
-        play_error = play_result.error
+    queue_position: int | None = None
+
+    # One speaker, one order: a call's audio is queued before the next call
+    # can synthesize, so playback follows the order the calls arrived in.
+    with _speak_lock:
+        output_path = active_engine.synthesize(
+            text,
+            voice_path=voice_path,
+            speed=speed,
+            output_dir=output_dir or default_output_dir(),
+        )
+        if play and os.environ.get("TTS_PLAY", "1") != "0":
+            play_result = enqueue_audio(output_path)
+            played = play_result.ok
+            play_error = play_result.error
+            if played:
+                queue_position = queue_depth()
 
     return SpeakResult(
         output_path=output_path,
@@ -473,6 +526,7 @@ def speak_text(
         segment_count=1,
         played=played,
         play_error=play_error,
+        queue_position=queue_position,
     )
 
 

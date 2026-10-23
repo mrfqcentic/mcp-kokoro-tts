@@ -8,3 +8,4 @@ build/
 .ruff_cache/
 .mypy_cache/
 pyrightconfig.json.user
+server.log

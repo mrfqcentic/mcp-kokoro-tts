@@ -78,9 +78,9 @@ def speak(text: str, voice: str | None = None, speed: float = 1.0) -> str:
         f"Synthesized speech to: {result.output_path}",
         f"Voice: {result.voice}",
     ]
-    if result.played:
-        parts.append("Played audio on the local machine")
-    elif result.play_error:
+    if result.queue_position is not None:
+        parts.append(f"Queued for playback (position {result.queue_position} in the audio queue)")
+    if result.play_error:
         parts.append(f"Could not play audio: {result.play_error}")
     return ". ".join(parts) + "."
 

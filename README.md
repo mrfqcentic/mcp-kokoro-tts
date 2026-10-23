@@ -43,7 +43,9 @@ When the user wants to hear something spoken aloud, call the `speak` tool with c
 
 ### `speak`
 
-Synthesizes speech, writes a WAV file, and plays it locally.
+Synthesizes speech, writes a WAV file, and plays it locally. Playback goes through a
+single queue: the call returns as soon as its audio is queued, and utterances play back
+to back in call order instead of overlapping.
 
 | Param | Required | Description |
 |---|---|---|

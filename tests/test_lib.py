@@ -152,3 +152,27 @@ def test_format_voice_listing_mentions_model_dir(tmp_path: Path, monkeypatch: py
     text = lib.format_voice_listing(paths)
     assert str(tmp_path) in text
     assert "af_heart" in text
+
+
+def test_playback_queue_serializes_in_call_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    log = tmp_path / "order.log"
+    files = []
+    for name in ("a", "b", "c"):
+        path = tmp_path / f"{name}.wav"
+        path.write_bytes(b"x")
+        files.append(path)
+
+    def fake_player(file: str) -> tuple[str, list[str]]:
+        script = f"echo start {file} >> {log}; sleep 0.1; echo end {file} >> {log}"
+        return ("/bin/sh", ["-c", script])
+
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(lib, "pick_player", fake_player)
+
+    assert [lib.enqueue_audio(path).ok for path in files] == [True, True, True]
+    lib._playback_queue.join()
+
+    events = [line.split() for line in log.read_text().splitlines()]
+    assert [(kind, file) for kind, file in events] == [
+        (kind, str(path)) for path in files for kind in ("start", "end")
+    ]
