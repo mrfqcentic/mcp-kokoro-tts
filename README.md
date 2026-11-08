@@ -106,6 +106,22 @@ Resolution order:
 }
 ```
 
+## Shared server (one copy for many clients)
+
+By default each MCP client starts its own server over stdio, so five open sessions load the model five times. Run one shared server over streamable HTTP instead:
+
+```bash
+TTS_TRANSPORT=http mcp-kokoro-tts        # or: mcp-kokoro-tts --http --port 8766
+```
+
+Then point clients at it:
+
+```json
+{ "mcpServers": { "mcp-kokoro-tts": { "type": "http", "url": "http://127.0.0.1:8766/mcp" } } }
+```
+
+Every client then shares one model and one playback queue. `TTS_HTTP_HOST` (default `127.0.0.1`) and `TTS_HTTP_PORT` (default `8766`) set the address.
+
 ## Environment variables
 
 | Variable | Description |

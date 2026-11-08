@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 from mcp.server.mcpserver import MCPServer
@@ -147,8 +148,52 @@ def _start_controls() -> None:
     _settings.start()
 
 
+DEFAULT_HTTP_HOST = "127.0.0.1"
+DEFAULT_HTTP_PORT = 8766
+
+
+def transport_settings(
+    argv: list[str] | None = None, env: dict[str, str] | None = None
+) -> tuple[str, str, int]:
+    """Pick the transport: stdio (one server per client) or shared HTTP.
+
+    `--http` or TTS_TRANSPORT=http runs one streamable-HTTP server that many
+    clients share, so the model loads once and every client feeds the same
+    playback queue. TTS_HTTP_HOST / TTS_HTTP_PORT (or `--port N`) set the address.
+    """
+    argv = sys.argv[1:] if argv is None else argv
+    env = dict(os.environ) if env is None else env
+    transport = env.get("TTS_TRANSPORT", "stdio").strip().lower()
+    host = env.get("TTS_HTTP_HOST", DEFAULT_HTTP_HOST)
+    port_text = env.get("TTS_HTTP_PORT", str(DEFAULT_HTTP_PORT))
+    args = iter(argv)
+    for arg in args:
+        if arg == "--http":
+            transport = "http"
+        elif arg == "--stdio":
+            transport = "stdio"
+        elif arg == "--port":
+            port_text = next(args, port_text)
+        elif arg.startswith("--port="):
+            port_text = arg.split("=", 1)[1]
+    if transport in ("http", "streamable-http"):
+        transport = "streamable-http"
+    elif transport != "stdio":
+        raise ValueError(f"unknown TTS_TRANSPORT {transport!r}; use 'stdio' or 'http'")
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise ValueError(f"invalid HTTP port {port_text!r}") from exc
+    return transport, host, port
+
+
 def run() -> None:
+    transport, host, port = transport_settings()
     initialize()
     _start_controls()
-    _log(f"mcp-kokoro-tts: ready on stdio (v{__version__})")
-    _server.run(transport="stdio")
+    if transport == "stdio":
+        _log(f"mcp-kokoro-tts: ready on stdio (v{__version__})")
+        _server.run(transport="stdio")
+        return
+    _log(f"mcp-kokoro-tts: ready on http://{host}:{port}/mcp (v{__version__})")
+    _server.run(transport="streamable-http", host=host, port=port)
